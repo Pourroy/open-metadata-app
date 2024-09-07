@@ -1,0 +1,29 @@
+openmetadata:
+  config:
+    elasticsearch:
+      host: search-opensearch-open-metadata-7wzgcrq7nhpqizdbfntvmlygp4.us-east-1.es.amazonaws.com
+      searchType: opensearch
+      port: 443
+      scheme: https
+      connectionTimeoutSecs: 5
+      socketTimeoutSecs: 60
+      keepAliveTimeoutSecs: 600
+      batchSize: 10
+      auth:
+        enabled: true
+        username: admin
+        password:
+          secretRef: elasticsearch-secrets
+          secretKey: openmetadata-elasticsearch-password
+    database:
+      host: db-mysql-test-rdsdbinstance-mpvbsilunb61.cgr6rlnyc3bu.us-east-1.rds.amazonaws.com
+      port: 3306
+      driverClass: com.mysql.cj.jdbc.Driver
+      dbScheme: mysql
+      dbUseSSL: true
+      databaseName: openmetadatadb
+      auth:
+        username: admin
+        password:
+          secretRef: mysql-secrets
+          secretKey: openmetadata-mysql-password

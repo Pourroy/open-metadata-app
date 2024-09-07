@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  MasterUsername:
+    Type: String
+    Description: The username for our database.
+    Default: xxxxxxxxxxxxxx
+
+  MasterUserPassword:
+    Type: String
+    Description: The password for the database.
+    Default: xxxxxxxxxxxxxx
+    "NoEcho": true
+
+Resources:
+  EC2SecurityGroup:
+      Type: "AWS::EC2::SecurityGroup"
+      Properties:
+          GroupDescription: "Database instances security group"
+          VpcId: "xxxxxxxxx"
+          SecurityGroupIngress:
+            -
+              CidrIp: "xxxxxxxxx/18"
+              FromPort: 3306
+              IpProtocol: "tcp"
+              ToPort: 3306
+            -
+              CidrIp: "xxxxxxxxxxxxxx"
+              FromPort: 3306
+              IpProtocol: "tcp"
+              ToPort: 3306
+          SecurityGroupEgress:
+            -
+              CidrIp: "xxxxxxxxxx"
+              IpProtocol: "-1"
+
+  RDSDBSubnetGroup:
+      Type: "AWS::RDS::DBSubnetGroup"
+      Properties:
+          DBSubnetGroupDescription: "Subnet Group for mySQL database"
+          DBSubnetGroupName: !Sub "open-metadata-subnetgroup"
+          SubnetIds:
+            - "xxxxxxxxxx"
+            - "xxxxxxxxxx"
+
+  RDSDBInstance:
+      Type: AWS::RDS::DBInstance
+      Properties:
+          DBSubnetGroupName: !Ref RDSDBSubnetGroup
+          Engine: "MYSQL"
+          AllocatedStorage: 20
+          #StorageEncrypted: true
+          DBInstanceClass: db.t4g.micro
+          DBName: openmetadatadb
+          Port: 3306
+          PreferredBackupWindow: 03:06-03:36
+          MasterUsername: !Ref MasterUsername
+          MasterUserPassword: !Ref MasterUserPassword
+          MultiAZ: true
+          AutoMinorVersionUpgrade: true
+          BackupRetentionPeriod: 7
+          EnableIAMDatabaseAuthentication: true
+          StorageType: gp3
+          EngineVersion: 8.0.35
+          PubliclyAccessible: true
+          StorageEncrypted: true
+          DeletionProtection: true
+          VPCSecurityGroups:
+            - !Ref EC2SecurityGroup
+          MaxAllocatedStorage: 30
+
+Outputs:
+  Cluster:
+    Description: The DB Cluster Name
+    Value: !Ref RDSDBInstance
+
+  SubnetGroup:
+    Description: The db subnet group name
+    Value: !Ref RDSDBSubnetGroup

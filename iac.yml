@@ -1,0 +1,512 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Amazon EKS Sample VPC
+
+Parameters:
+  MasterUsername:
+    Type: String
+    Description: The username for our database.
+    Default: xxxxxxxxxxxxxxxx
+
+  MasterUserPassword:
+    Type: String
+    Description: The password for the database.
+    Default: xxxxxxxxxxxxxx
+    NoEcho: true
+
+  DesiredCapacity:
+    Type: Number
+    Description: Desired number of worker nodes
+    Default: 2
+    MinValue: 1
+    MaxValue: 10
+
+  NodeGroupName:
+    Type: String
+    Description: Name of the EKS node group
+    Default: 'lakecontrol-node-group'
+
+  NodeInstanceType:
+    Type: String
+    Description: EC2 instance type for the worker nodes
+    Default: t2.large
+
+  VpcBlock:
+    Type: String
+    Default: xxxxxxxxxxx/16
+    Description: The CIDR range for the VPC. This should be a valid private  CIDR range.
+
+  PublicSubnet01Block:
+    Type: String
+    Default: xxxxxxxxx/18
+    Description: CidrBlock for public subnet 01 within the VPC
+
+  PublicSubnet02Block:
+    Type: String
+    Default: xxxxxxxxxxxxxxx/18
+    Description: CidrBlock for public subnet 02 within the VPC
+
+  PrivateSubnet01Block:
+    Type: String
+    Default: xxxxxxxxxxxxxxxx/18
+    Description: CidrBlock for private subnet 01 within the VPC
+
+  PrivateSubnet02Block:
+    Type: String
+    Default: xxxxxxxxxxxxxx/18
+    Description: CidrBlock for private subnet 02 within the VPC
+
+Mappings:
+  EksAmiIds:
+    us-east-1:
+      Standard: ami-0a0b913ef3249b655
+    us-east-2:
+      Standard: ami-0958a76db2d150238
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Worker Network Configuration
+        Parameters:
+          - VpcBlock
+          - PublicSubnet01Block
+          - PublicSubnet02Block
+          - PrivateSubnet01Block
+          - PrivateSubnet02Block
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: LakeControlVpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Subnets
+        - Key: Network
+          Value: Public
+
+  PrivateRouteTable01:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Subnet AZ1
+        - Key: Network
+          Value: Private01
+
+  PrivateRouteTable02:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Subnet AZ2
+        - Key: Network
+          Value: Private02
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PrivateRoute01:
+    DependsOn:
+      - VPCGatewayAttachment
+      - NatGateway01
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable01
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway01
+
+  PrivateRoute02:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - VPCGatewayAttachment
+      - NatGateway02
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable02
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway02
+
+  NatGateway01:
+    Type: AWS::EC2::NatGateway
+    DependsOn:
+      - NatGatewayEIP1
+      - PublicSubnet01
+      - VPCGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP1.AllocationId
+      SubnetId: !Ref PublicSubnet01
+      Tags:
+        - Key: Name
+          Value: LakeControl-NatGatewayAZ1
+
+  NatGateway02:
+    Type: AWS::EC2::NatGateway
+    DependsOn:
+      - NatGatewayEIP2
+      - PublicSubnet02
+      - VPCGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP2.AllocationId
+      SubnetId: !Ref PublicSubnet02
+      Tags:
+        - Key: Name
+          Value: LakeControl-NatGatewayAZ2
+
+  NatGatewayEIP1:
+    DependsOn:
+      - VPCGatewayAttachment
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGatewayEIP2:
+    DependsOn:
+      - VPCGatewayAttachment
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  PublicSubnet01:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet 01
+    Properties:
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: !Ref PublicSubnet01Block
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: LakeControl-PublicSubnet01
+        - Key: kubernetes.io/role/elb
+          Value: 1
+
+  PublicSubnet02:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet 02
+    Properties:
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: !Ref PublicSubnet02Block
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: LakeControl-PublicSubnet02
+        - Key: kubernetes.io/role/elb
+          Value: 1
+
+  PrivateSubnet01:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Subnet 03
+    Properties:
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: !Ref PrivateSubnet01Block
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: LakeControl-PrivateSubnet01
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+
+  PrivateSubnet02:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      Comment: Private Subnet 02
+    Properties:
+      AvailabilityZone: !Select
+        - '1'
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: !Ref PrivateSubnet02Block
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: LakeControl-PrivateSubnet02
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+
+  PublicSubnet01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet01
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet02RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet02
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet01
+      RouteTableId: !Ref PrivateRouteTable01
+
+  PrivateSubnet02RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet02
+      RouteTableId: !Ref PrivateRouteTable02
+
+# #============================================================================#
+# # Control plane
+# #============================================================================#
+
+  ControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Cluster communication with worker nodes
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: '-1'
+          CidrIpv6: '::/0'
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: '-1'
+          CidrIpv6: '::/0'
+      Tags:
+        - Key: Name
+          Value: LakeControl-ControlPlaneSecurityGroup
+
+  ControlPlaneRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: Allow
+          Principal:
+            Service:
+              - eks.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+
+  ControlPlane:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: lakecontrol-cluster
+      AccessConfig:
+        AuthenticationMode: API_AND_CONFIG_MAP
+      Version: '1.30'
+      RoleArn: !GetAtt ControlPlaneRole.Arn
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !Ref ControlPlaneSecurityGroup
+        SubnetIds:
+          - !Ref PublicSubnet01
+          - !Ref PublicSubnet02
+          - !Ref PrivateSubnet01
+          - !Ref PrivateSubnet02
+
+  #============================================================================#
+  # Worker nodes security group
+  # Note: default egress rule (allow all traffic to all destinations) applies
+  #============================================================================#
+
+  NodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DependsOn:
+      - ControlPlane
+      - NodeInstanceRole
+    Properties:
+      ClusterName: lakecontrol-cluster
+      DiskSize: 200
+      NodegroupName: !Ref NodeGroupName
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      Subnets:
+        - !Ref PrivateSubnet01
+        - !Ref PrivateSubnet02
+      ScalingConfig:
+        DesiredSize: !Ref DesiredCapacity
+        MinSize: 1
+        MaxSize: 3
+      InstanceTypes:
+        - !Ref NodeInstanceType
+
+  NodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lakecontrol-cluster-node-instance-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+##### DataBase #######
+  EC2SecurityGroup:
+      Type: "AWS::EC2::SecurityGroup"
+      Properties:
+          GroupDescription: "Database instances security group"
+          VpcId: !Ref VPC
+          SecurityGroupIngress:
+            -
+              CidrIp: "10.0.128.0/18"
+              FromPort: 3306
+              IpProtocol: "tcp"
+              ToPort: 3306
+            -
+              CidrIp: "10.0.192.0/18"
+              FromPort: 3306
+              IpProtocol: "tcp"
+              ToPort: 3306
+          SecurityGroupEgress:
+            -
+              CidrIp: "0.0.0.0/0"
+              IpProtocol: "-1"
+
+  RDSDBSubnetGroup:
+      Type: "AWS::RDS::DBSubnetGroup"
+      Properties:
+          DBSubnetGroupDescription: "Subnet Group for mySQL database"
+          DBSubnetGroupName: !Sub "open-metadata-subnetgroup"
+          SubnetIds:
+            - !Ref PrivateSubnet01
+            - !Ref PrivateSubnet02
+
+  RDSDBInstance:
+      Type: AWS::RDS::DBInstance
+      Properties:
+          DBSubnetGroupName: !Ref RDSDBSubnetGroup
+          Engine: "MYSQL"
+          AllocatedStorage: 20
+          #StorageEncrypted: true
+          DBInstanceClass: db.t4g.micro
+          DBName: openmetadatadb
+          Port: 3306
+          PreferredBackupWindow: 03:06-03:36
+          MasterUsername: !Ref MasterUsername
+          MasterUserPassword: !Ref MasterUserPassword
+          MultiAZ: true
+          AutoMinorVersionUpgrade: true
+          BackupRetentionPeriod: 7
+          EnableIAMDatabaseAuthentication: true
+          StorageType: gp3
+          EngineVersion: 8.0.35
+          PubliclyAccessible: true
+          StorageEncrypted: true
+          DeletionProtection: true
+          VPCSecurityGroups:
+            - !Ref EC2SecurityGroup
+          MaxAllocatedStorage: 30
+
+##### Elastic File System #############
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      FileSystemTags:
+      - Key: Name
+        Value: open-metadata-efs
+      PerformanceMode: generalPurpose
+
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    DependsOn:
+    - FileSystem
+    - EfsSecurityGroup
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref PrivateSubnet01
+      SecurityGroups:
+      - !Ref EfsSecurityGroup
+
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    DependsOn:
+    - FileSystem
+    - EfsSecurityGroup
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref PrivateSubnet02
+      SecurityGroups:
+      - !Ref EfsSecurityGroup
+
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Instance to EFS Mount Access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: '-1'
+          CidrIpv6: '::/0'
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: '-1'
+          CidrIpv6: '::/0'
+
+Outputs:
+  SubnetIds:
+    Description: Subnets IDs in the VPC
+    Value: !Join
+      - ','
+      - - !Ref PublicSubnet01
+        - !Ref PublicSubnet02
+        - !Ref PrivateSubnet01
+        - !Ref PrivateSubnet02
+
+  SecurityGroups:
+    Description: Security group for the cluster control plane communication with
+      worker nodes
+    Value: !Join
+      - ','
+      - - !Ref ControlPlaneSecurityGroup
+
+  VpcId:
+    Description: The VPC Id
+    Value: !Ref VPC
+
+  NodeGroupNameOutput:
+    Description: Name of the EKS node group
+    Value: !Ref NodeGroupName
